@@ -1,6 +1,8 @@
-# Koe15 — macOS 15 対応フォーク
+# Koe for macOS 15
 
-[hanafusay/koe](https://github.com/hanafusay/koe) の日本語音声入力アプリを、macOS 15 SDK・Swift 6.1 で動くように変更した版です。
+**macOS Sequoiaで使える、日本語音声入力。**
+
+[hanafusay/koe](https://github.com/hanafusay/koe) の非公式互換版です。macOS 15 SDK・Swift 6.1 に対応し、音声をMac内で文字に変換します。インストールされるアプリ名は `Koe15` です。
 
 ## できること・制限
 
