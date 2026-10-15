@@ -12,10 +12,31 @@ struct SettingsView: View {
     @State private var modelUnavailableReason = OnDeviceLanguageModelService().unavailableReason
     @State private var audioInputDevices: [AudioInputDevice] = []
     @State private var grantedPermissions: Set<Permission> = []
+    @State private var isTestingSpeech = false
+    @State private var speechTestResult = ""
 
     var body: some View {
         Form {
             inputSection
+            Section("音声認識の確認") {
+                Button(isTestingSpeech ? "確認中…" : "サンプル音声で確認") {
+                    isTestingSpeech = true
+                    speechTestResult = ""
+                    Task { @MainActor in
+                        defer { isTestingSpeech = false }
+                        guard let file = Bundle.main.url(forResource: "SpeechSample", withExtension: "aiff") else {
+                            speechTestResult = "検査用音声が見つかりません"
+                            return
+                        }
+                        let success = await FileTranscriptionProbe.run(file: file)
+                        let text = SpeechManager.shared.transcript.text
+                        speechTestResult = success ? "成功: \(text)" : "確認失敗: \(SpeechManager.shared.lastError?.localizedDescription ?? "音声認識の権限・モデルを確認してください")"
+                    }
+                }
+                .disabled(isTestingSpeech || SpeechManager.shared.isRecording || DictationCoordinator.shared.isProcessing)
+                Text(speechTestResult.isEmpty ? "マイクを使わず、付属の日本語音声で確認します。文字は他のアプリに入力しません。" : speechTestResult)
+                    .settingsFootnote()
+            }
             dictionarySection
             Section("一般") {
                 Toggle("効果音", isOn: $config.soundEffects)
@@ -38,6 +59,10 @@ struct SettingsView: View {
 
     private var inputSection: some View {
         Section {
+            LabeledContent("音声認識", value: "Mac 内で処理（macOS 15 互換版）")
+            Text("1回の録音は最大55秒です。続きはもう一度録音してください。")
+                .settingsFootnote()
+
             Picker("録音キー", selection: $config.triggerKey) {
                 ForEach(TriggerKey.allCases) { key in
                     Text(key.displayName).tag(key)
@@ -64,7 +89,7 @@ struct SettingsView: View {
                 }
             } label: {
                 Text("選択範囲の修正")
-                Text("文字を選択して話すと、その指示で Apple Intelligence が書き換えます")
+                Text("音声指示での書き換えには macOS 26 以降が必要です")
             }
         } header: {
             Text("入力")

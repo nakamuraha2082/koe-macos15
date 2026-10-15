@@ -1,201 +1,68 @@
-# koe!
+# Koe15 — macOS 15 対応フォーク
 
-[![Latest Release](https://img.shields.io/github/v/release/hanafusay/koe?style=flat-square&label=latest)](../../releases/latest)
-![macOS 26+](https://img.shields.io/badge/macOS-26%2B-blue?style=flat-square&logo=apple)
-![Swift 6.2](https://img.shields.io/badge/Swift-6.2-F05138?style=flat-square&logo=swift&logoColor=white)
-![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)
+[hanafusay/koe](https://github.com/hanafusay/koe) の日本語音声入力アプリを、macOS 15 SDK・Swift 6.1 で動くように変更した版です。
 
-**koe** = 声（こえ）。macOS メニューバー常駐の日本語音声入力ユーティリティです。
-`fn` を押している間だけ録音し、話している最中から前面アプリの入力欄へ文字を打ち込みます。
-文字を選択した状態で話すと、話した指示（「丁寧語にして」など）で選択範囲を書き換えます。
+## できること・制限
 
-![話すそばから文字が入る様子](screenshots/demo.gif)
+| 機能 | Koe15 |
+|---|---|
+| 日本語音声入力・途中結果の入力 | 対応。Apple の SFSpeechRecognizer を使用 |
+| fn 長押し・2回押しのハンズフリー | 対応。1回最大55秒。認識エンジンが先に終了した場合も確定 |
+| 辞書・履歴・マイク選択・再貼り付け | 対応 |
+| 選択した文章を音声指示で書き換える | 非対応。選択範囲を変更せず、理由を表示 |
+| アプリ名・設定・権限 | Koe15.app / com.koe.macos15。元の Koe と別管理 |
 
-## プライバシーとセキュリティ
+音声は Mac 内で処理し、クラウド認識に切り替えません。macOS 26 版とは認識精度・遅延・句読点が異なります。Apple Intelligence の文章修正機能は使えません。
 
-- 開発者のサーバーにデータが送信されることはありません
-- 音声認識は Mac 内の SpeechAnalyzer で行い、録音データも文字起こしも Mac の外に出ません（初回のみ、日本語の認識モデルを Apple から取得することがあります）
-- 選択範囲の修正は Apple Intelligence のオンデバイスモデルで行い、テキストは Mac の外に出ません
-- 辞書・履歴・設定はすべて Mac 内（UserDefaults）に保存されます
-- 動作ログは `~/Library/Logs/Koe/koe.log` に、本人だけが読める権限で保存されます（起動のたびに作り直します）
-- サードパーティライブラリを含みません（Apple 純正フレームワークのみ）
-- 利用状況の収集・送信は一切行いません
+## ビルド・起動
 
-## 動作環境
+macOS 15 以上、Command Line Tools（macOS 15 SDK）、Swift 6.1 以上が必要です。
 
-- macOS 26 以上
-- 選択範囲の修正だけ、Apple Intelligence に対応した Mac で **システム設定 > Apple Intelligence と Siri** をオンにする必要があります。オフでも音声入力は使えます
+```bash
+git clone --branch feat/macos15-support https://github.com/nakamuraha2082/koe-macos15.git
+cd koe-macos15
+./build.sh
+open /Applications/Koe15.app
+```
 
-## インストール（DMG から）
+build.sh はビルド・アドホック署名・配置を行います。既存の Koe15.app は置き換えますが、元の Koe.app は上書きしません。両方を同時起動すると録音キーが競合するため、片方だけ起動してください。
 
-開発環境は不要です。
-
-### 1. ダウンロード
-
-[GitHub Releases](../../releases/latest) から最新の `Koe-*.dmg` をダウンロードしてください。
-
-### 2. アプリを Applications にコピー
-
-DMG を開いて `Koe.app` を `Applications` フォルダにドラッグ＆ドロップします。
-
-### 3. 初回起動（Gatekeeper の許可）
-
-このアプリはアドホック署名のため、初回起動時に macOS の Gatekeeper にブロックされます。
-
-1. `/Applications/Koe.app` をダブルクリック → ブロックされるので **「完了」** を押す
-2. **システム設定 > プライバシーとセキュリティ** を開く
-3. 画面下部に表示される **「このまま開く」** をクリック
-4. 確認ダイアログで **「開く」** をクリック（以降はダブルクリックで起動可能）
-
-### 4. 権限を許可
-
-初回起動時にダイアログが表示されるので、以下をすべて許可してください。設定画面の「権限」でも状態を確認できます。
-
-- マイク
-- 音声認識
-- アクセシビリティ（システム設定 > プライバシーとセキュリティ > アクセシビリティ）
-- 入力監視（システム設定 > プライバシーとセキュリティ > 入力監視）
+初回起動時にマイク・音声認識・アクセシビリティ・入力監視を Koe15 に許可し、アプリを再起動してください。日本語のオンデバイス認識モデルが使えない場合は、システム設定 → キーボード → 音声入力を日本語で有効にして、準備完了後に再試行してください。モデルをこのアプリから直接インストールする機能はありません。
 
 ## 使い方
 
-### 音声入力
-
 | 操作 | 動作 |
-|------|------|
-| `fn` を押しながら話す → 離す | 話している間に文字が入力され、離すと確定（プッシュトゥトーク） |
-| `fn` を素早く 2 回押す | ハンズフリー録音。キーを離したまま話し、もう一度 `fn` で確定。30 秒話さなければ自動で確定 |
-| 録音中に `esc` | 録音を取り消し、その録音で入力した文字をすべて消す |
-| `⌃⌘V` | 直前の入力をもう一度貼り付け |
+|---|---|
+| fn を押しながら話す → 離す | 音声入力して確定 |
+| fn を素早く2回押す | ハンズフリー。もう一度押して確定 |
+| 録音中に Esc | 取り消し |
+| Control + Command + V | 直前の入力を貼り直す |
+| メニューバー → 設定 | 録音キー・マイク・辞書・権限を確認 |
+| 設定 → サンプル音声で確認 | マイクを使わず、付属音声で認識と入力差分の整合性を検査 |
 
-- 録音キーは設定で `fn`・右 Option・Control から選べます
-- 録音キーが `fn`・右 Option・Control のどれでも、長押し中から文字が入力されます
-- `fn` を押した瞬間から録音するため、話し始めの言葉が欠けません。画面下の表示は 0.25 秒以上押したときだけ出ます
-- `fn` を短く 1 回押しただけ（入力ソースの切り替えなど）の場合は何も入力しません
-- 押している間に別のキーを押した場合（`fn`+矢印キーなどのショートカット）は録音を取り消します
-- 認識が固まるにつれて入力済みの文字が書き直されます。句読点も付きます
-- 日本語入力がオンでも文字が変換されないよう、打ち込む間だけ英字入力に切り替え、終わると元の入力ソースに戻します
-- 入力中に別のアプリや入力欄へ移ったり、クリックやキー入力で入力位置を動かしたりすると、打った文字はその場に残し、続きを移った先に打ち込みます。ハンズフリーのまま複数の場所へ続けて入力できます。移る前に打った文字は、後で認識結果が変わっても直しません
-- パスワード入力欄に移ると打ち込みを止めます。`⌃⌘V` で全文を貼り付けられます
+1回55秒までです。続きは録音を開始し直してください。録音キーは右 Option・Control にも変更できます。fn で絵文字が開く場合は、システム設定のキーボード設定で地球儀キーの動作を「何もしない」にしてください。文字が選択されている場合は選択を解除してから録音してください。
 
-### 辞書
+## プライバシー
 
-固有名詞や同音異義語が別の語で入力される場合は、設定の「辞書」に登録します。
+- Apple 純正フレームワークのみ使用。API キーは不要です。
+- supportsOnDeviceRecognition を確認し、requiresOnDeviceRecognition を true に固定します。クラウドへのフォールバックはありません。
+- 辞書・設定・直近10件の履歴はローカルの UserDefaults に保存します。
+- ログは `~/Library/Logs/Koe15/koe.log`。起動ごとに作り直し、本人だけが読める権限で保存します。
 
-| 欄 | 内容 | 例 |
-|------|------|------|
-| 正しい表記（必須） | 入力したい語。音声認識に聞き取りの手がかりとして渡します | `Slack` |
-| 誤認識（任意） | 実際に出てしまった語。カンマか読点で区切って複数書けます | `スラック, スラッグ` |
-
-誤認識に書いた語が出ると、入力する前に正しい表記へ置き換えます。手がかりだけでは直らない語も、誤認識を書いておけば確実に直ります。変更は次の録音から反映されます。
-
-### 履歴
-
-メニューバーのアイコン →「履歴」に直近 10 件の入力が新しい順に並びます。選ぶとクリップボードにコピーし、画面下に「コピーしました」と表示します。「履歴を消去」で空にできます。
-
-### 効果音
-
-確定したときと取り消したときに小さな音を鳴らします（録音の開始は画面下の表示で分かるため、音は鳴らしません）。設定の「一般」でオフにできます。
-
-### 選択テキストの修正
-
-既に入力済みのテキストを音声指示で書き換えられます。
-
-1. 修正したいテキストを選択（`Cmd+A` やドラッグ等）
-2. `fn` を押しながら（またはダブルタップでハンズフリーにして）話す。画面下の表示が紫になり「選択範囲を修正」と表示されます
-3. 「丁寧語にして」「箇条書きにして」「時間を16時に変えて」「英語にして」等と話す
-4. `fn` を離すと Apple Intelligence が書き換え、選択テキストを置き換えます
-
-Apple Intelligence が使えない場合は理由を表示し、何も書き換えません。使えるかどうかは設定の「入力」で確認できます。
-
-## トラブルシュート
-
-- `アクセシビリティを許可してください` が消えない
-  - 許可対象が `/Applications/Koe.app` か確認
-  - アプリ再起動を実施
-
-- `fn` で起動しない
-  - `入力監視` が ON か確認
-  - システム設定 > キーボード > `🌐キーを押して` を `何もしない` に変更
-
-- 設定をやり直したい
-  - **ターミナル.app**（Launchpad > その他 > ターミナル）を開き、以下を 1 行ずつ貼り付けて実行してください
+## 検証・配布
 
 ```bash
-tccutil reset Accessibility com.koe.app
-tccutil reset ListenEvent com.koe.app
-tccutil reset PostEvent com.koe.app
-```
-
-> 実行後、アプリを再起動すると権限ダイアログが再表示されます。
-
----
-
-## 開発者向け
-
-### 設計ドキュメント
-
-- [ARCHITECTURE.md](ARCHITECTURE.md)
-
-### 前提環境
-
-- macOS 26 以上
-- Xcode Command Line Tools（macOS 26 SDK）
-- Swift 6.2+（`swift build` が動くこと）
-
-### ソースからビルド
-
-```bash
-git clone https://github.com/hanafusay/koe.git
-cd koe
-./build.sh
-open /Applications/Koe.app
-```
-
-`build.sh` は release ビルド → .app バンドル作成 → コード署名 → `/Applications` にインストールまで一括で行います。
-DMG からインストール済みの場合でも、バンドル ID が同じため `/Applications/Koe.app` が開発ビルドで上書きされます。TCC 権限（アクセシビリティ・入力監視等）はそのまま引き継がれるので再設定は不要です。元に戻すには DMG から再インストールしてください。
-
-権限付与後にアプリを再起動:
-
-```bash
-pkill -x Koe; open /Applications/Koe.app
-```
-
-### 動作確認
-
-`/Applications` に入れずに確かめられる仕組みがあります。
-
-```bash
-# 録音キーの状態遷移・リアルタイム入力の打ち直し・辞書の置き換えを検査する
 bash scripts/check-trigger-state-machine.sh
-
-# 音声ファイルを本番と同じ認識経路に流し、途中結果と打ち込む操作を表示する（キー入力は送らない）
-say -v Kyoko -o /tmp/d.aiff "スラックで仕様を確認します"
-source scripts/lib.sh && build_release   # Command Line Tools だけの環境では macOS 26 SDK を選んでビルド
-.build/release/Koe --transcribe-file /tmp/d.aiff --dictionary Slack=スラック,仕様=使用
-
-# 画面下の表示・設定画面・メニューを PNG に書き出す
-.build/release/Koe --render-snapshots /tmp/koe-snapshots
-```
-
-`--dictionary` は保存済みの辞書の代わりに使う辞書で、`正しい表記=誤認識` をカンマで区切って並べます。
-`--render-snapshots` の設定画面とメニューは、権限を持たない開発用バイナリで描くため権限が「未許可」と表示されます。
-
-### DMG の作成
-
-```bash
+source scripts/lib.sh && build_release && create_app_bundle && codesign_app
+say -v Kyoko -o /tmp/koe15-sample.aiff "スラックで仕様を確認します"
+/Applications/Koe15.app/Contents/MacOS/Koe --transcribe-file /tmp/koe15-sample.aiff --dictionary Slack=スラック
 ./create-dmg.sh
-# dist/Koe-<version>.dmg が生成される
 ```
 
-### リリースの作り方
+音声ファイルの検査はキー入力を送らず、認識文と入力結果を標準出力に表示します。音声認識の許可が必要です。ターミナルからの実行が別の実行元として扱われ、権限エラーになる場合は、アプリの設定にある「サンプル音声で確認」を使ってください。失敗・空の認識結果・入力結果不一致では終了コード1を返します。DMG は dist/Koe15-<version>.dmg に生成します。Developer ID による署名・公証は行っていません。
 
-タグを push すると GitHub Actions が自動で DMG を作成し、GitHub Releases に公開します。
-
-```bash
-git tag v1.x.0
-git push origin v1.x.0
-```
+設計は [ARCHITECTURE.md](ARCHITECTURE.md)、元の使い方は [上流 README](https://github.com/hanafusay/koe#readme) を参照してください。
 
 ## ライセンス
 
-[MIT License](LICENSE)
+元の著作権表示を維持した [MIT License](LICENSE) です。

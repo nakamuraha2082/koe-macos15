@@ -64,6 +64,11 @@ final class DictationCoordinator: ObservableObject {
         self.typer = typer
         self.overlay = overlay
 
+        speechManager.onRecognitionEnded = { [weak self] in
+            guard let self, self.live != nil || self.selectedTextForCorrection != nil else { return }
+            self.stopRecording()
+            HotkeyManager.shared.resetState()
+        }
         let state = overlay.overlayState
         speechManager.$transcript
             .sink { [weak self] transcript in
@@ -95,6 +100,13 @@ final class DictationCoordinator: ObservableObject {
         }
 
         let selected = pasteService.getSelectedText()
+        if selected != nil, let reason = OnDeviceLanguageModelService().unavailableReason {
+            statusText = "選択範囲の修正は使えません"
+            overlay.update(.notice("\(reason.message)。選択を解除してから音声入力してください"))
+            overlay.show()
+            dismissOverlayAfterDelay(seconds: Self.noticeLinger)
+            return
+        }
         selectedTextForCorrection = selected
         correctionTargetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         Log.d("[DictationCoordinator] Selected text for correction: \(selected.map { "\($0.count) chars" } ?? "none")")
@@ -300,7 +312,11 @@ final class DictationCoordinator: ObservableObject {
             return
         }
         Config.shared.remember(final.text)
-        if typedAll {
+        if let error = speechManager.lastError {
+            statusText = "音声認識が中断しました"
+            overlay.update(.notice("認識済みの文を保存しました（\(error.localizedDescription)）"))
+            dismissOverlayAfterDelay(seconds: Self.noticeLinger)
+        } else if typedAll {
             statusText = "完了"
             overlay.update(.done)
             dismissOverlayAfterDelay(seconds: Self.doneLinger)

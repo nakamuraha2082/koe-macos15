@@ -3,7 +3,7 @@ import Foundation
 enum Log {
     private static let logFile: FileHandle? = {
         // 認識した文の長さや操作の記録が他のユーザーから読めないよう、共有の /tmp ではなく自分だけが読める場所に置く。
-        let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Koe")
+        let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Koe15")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let path = directory.appendingPathComponent("koe.log").path
         FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])

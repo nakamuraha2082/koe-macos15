@@ -1,7 +1,7 @@
 import AVFoundation
 import Speech
 
-/// マイク（またはファイル）の音を SpeechAnalyzer に流し、認識の途中経過を `transcript` として公開する。
+/// マイク（またはファイル）の音を SFSpeechRecognizer に流し、認識の途中経過を `transcript` として公開する。
 @MainActor
 final class SpeechManager: ObservableObject {
     static let shared = SpeechManager()
@@ -21,7 +21,13 @@ final class SpeechManager: ObservableObject {
     private var fileFeeder: Task<Void, Never>?
     private var audioInput: AsyncStream<AVAudioPCMBuffer>.Continuation?
     private var analysisTask: Task<Void, Never>?
-    private var analyzer: SpeechAnalyzer?
+    private var recognizer: SFSpeechRecognizer?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionResults: AsyncThrowingStream<SFSpeechRecognitionResult, Error>.Continuation?
+    private var limitTask: Task<Void, Never>?
+    /// 認識終了・時間制限・エラー時は、入力済みの文を確定して録音を終了する。
+    var onRecognitionEnded: () -> Void = {}
     /// 前の録音の結果が遅れて届いても、今の録音に混ぜないための番号。
     private var session = 0
     private var dictionary: [DictionaryEntry] = []
@@ -33,11 +39,20 @@ final class SpeechManager: ObservableObject {
         }
     }
 
-    /// 録音はすぐに始め、認識の準備（モデルの確認と読み込み）を待つ間の音は貯めておく。押した瞬間の話し始めを欠かさないため。
+    /// オンデバイス認識が使える場合だけ録音を開始する。ネットワーク認識へは切り替えない。
     /// `file` を渡すとマイクの代わりにそのファイルを実時間の速さで流す（動作確認用）。
     func startRecording(language: String, dictionary: [DictionaryEntry], file: URL? = nil) throws {
         cancelRecording()
         self.dictionary = dictionary
+        lastError = nil
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
+            throw SpeechError.permissionRequired
+        }
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)),
+              recognizer.supportsOnDeviceRecognition else {
+            throw SpeechError.unsupportedLanguage
+        }
+        self.recognizer = recognizer
 
         let (audio, input) = AsyncStream.makeStream(of: AVAudioPCMBuffer.self)
         session += 1
@@ -52,20 +67,32 @@ final class SpeechManager: ObservableObject {
             }
         } catch {
             input.finish()
+            stopAudioCapture()
+            self.recognizer = nil
             throw error
         }
 
         audioInput = input
         analysisTask = Task { [weak self] in
-            await self?.analyze(audio, locale: Locale(identifier: language), session: current)
+            await self?.analyze(audio, session: current)
         }
         isRecording = true
+        if file == nil {
+            limitTask = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(55)) } catch { return }
+                guard let self, self.session == current, self.isRecording else { return }
+                self.onRecognitionEnded()
+                self.stopRecording()
+            }
+        }
         Log.d("[SpeechManager] Recording started (session=\(current))")
     }
 
     /// 音の入力を止める。最終結果は `finalTranscript()` で待つ。
     func stopRecording() {
         guard isRecording else { return }
+        limitTask?.cancel()
+        limitTask = nil
         Log.d("[SpeechManager] Stopping recording")
         stopAudioCapture()
         audioInput?.finish()
@@ -77,17 +104,24 @@ final class SpeechManager: ObservableObject {
     func finalTranscript(timeout: Duration = .seconds(3)) async -> Transcript {
         guard let task = analysisTask else { return transcript }
         analysisTask = nil
-        // 確定処理が cancelAndFinishNow 後も戻らないことがあり、待ち続けると次の録音を受け付けなくなる。
+        let current = session
+        // OS から確定結果が戻らなくても、次の録音を受け付けられるようにする。
         // 期限が来たらそこまでの認識結果で打ち切り、遅れて届く結果は session を進めて捨てる。
         let finished = await Self.first(of: { await task.value }, orAfter: timeout)
+        guard current == session else { return Transcript() }
         guard !finished else { return transcript }
         Log.d("[SpeechManager] Finalizing timed out; using the transcript so far")
         let result = transcript
         session += 1
-        if let analyzer {
-            Task { await analyzer.cancelAndFinishNow() }
-        }
-        analyzer = nil
+        stopAudioCapture()
+        audioInput?.finish()
+        audioInput = nil
+        task.cancel()
+        limitTask?.cancel()
+        limitTask = nil
+        isRecording = false
+        lastError = SpeechError.finalizationTimedOut
+        finishRecognition()
         return result
     }
 
@@ -119,79 +153,70 @@ final class SpeechManager: ObservableObject {
         audioInput?.finish()
         audioInput = nil
         session += 1
-        if let analyzer {
-            Task { await analyzer.cancelAndFinishNow() }
-        }
-        analyzer = nil
+        limitTask?.cancel()
+        limitTask = nil
+        analysisTask?.cancel()
         analysisTask = nil
+        finishRecognition()
         if isRecording { Log.d("[SpeechManager] Recording cancelled") }
         isRecording = false
         transcript = Transcript()
     }
 
-    private func analyze(_ audio: AsyncStream<AVAudioPCMBuffer>, locale: Locale, session current: Int) async {
-        do {
-            guard let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
-                throw SpeechError.unsupportedLanguage
-            }
-            let transcriber = SpeechTranscriber(
-                locale: supported,
-                transcriptionOptions: [],
-                reportingOptions: [.volatileResults, .fastResults],
-                attributeOptions: []
-            )
-            // 端末に入っていない言語は、初回だけここでモデルを取得する（入っていれば即座に終わる）。
-            if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-                try await request.downloadAndInstall()
-            }
-            guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
-                throw SpeechError.unsupportedLanguage
-            }
-            guard current == session else { return }
-
-            let (inputs, inputContinuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
-            let analyzer = SpeechAnalyzer(modules: [transcriber])
-            self.analyzer = analyzer
-            if !dictionary.words.isEmpty {
-                let context = AnalysisContext()
-                context.contextualStrings[.general] = dictionary.words
-                try await analyzer.setContext(context)
-            }
-            try await analyzer.start(inputSequence: inputs)
-
-            let results = Task { [weak self] in
-                for try await result in transcriber.results {
-                    self?.receive(String(result.text.characters), isFinal: result.isFinal, session: current)
-                }
-            }
-
-            let converter = BufferConverter(to: format)
-            for await buffer in audio {
-                if let converted = converter.convert(buffer) {
-                    inputContinuation.yield(AnalyzerInput(buffer: converted))
-                }
-            }
-            inputContinuation.finish()
-            guard current == session else { return }
-            try await analyzer.finalizeAndFinishThroughEndOfInput()
-            try await results.value
-        } catch {
-            guard current == session else { return }
-            Log.d("[SpeechManager] Analysis error: \(error)")
-            lastError = error
-        }
-        if current == session {
-            analyzer = nil
-        }
+    private func finishRecognition() {
+        recognitionResults?.finish()
+        recognitionResults = nil
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognizer = nil
     }
 
-    private func receive(_ text: String, isFinal: Bool, session current: Int) {
+    private func analyze(_ audio: AsyncStream<AVAudioPCMBuffer>, session current: Int) async {
+        guard current == session, let recognizer else { return }
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.requiresOnDeviceRecognition = true
+        request.shouldReportPartialResults = true
+        request.addsPunctuation = true
+        request.taskHint = .dictation
+        request.contextualStrings = Array(dictionary.words.prefix(100))
+        recognitionRequest = request
+
+        let (results, continuation) = AsyncThrowingStream.makeStream(of: SFSpeechRecognitionResult.self)
+        recognitionResults = continuation
+        recognitionTask = recognizer.recognitionTask(with: request) { result, error in
+            if let result {
+                continuation.yield(result)
+                if result.isFinal { continuation.finish(); return }
+            }
+            if let error { continuation.finish(throwing: error) }
+        }
+        let feeder = Task {
+            for await buffer in audio {
+                guard !Task.isCancelled else { break }
+                request.append(buffer)
+            }
+            request.endAudio()
+        }
+        defer { feeder.cancel() }
+        do {
+            for try await result in results {
+                guard current == session, !Task.isCancelled else { return }
+                let text = dictionary.corrected(result.bestTranscription.formattedString)
+                Log.d("[SpeechManager] Result chars=\(text.count), final=\(result.isFinal)")
+                transcript.receiveCumulative(text, isFinal: result.isFinal)
+            }
+        } catch {
+            guard current == session else { return }
+            Log.d("[SpeechManager] Recognition error: \(error)")
+            lastError = error
+        }
         guard current == session else { return }
-        let text = dictionary.corrected(text)
-        if isFinal {
-            transcript = Transcript(finalized: transcript.finalized + text)
-        } else {
-            transcript.volatile = text
+        finishRecognition()
+        if isRecording {
+            onRecognitionEnded()
+            stopRecording()
         }
     }
 
@@ -283,57 +308,23 @@ final class SpeechManager: ObservableObject {
     }
 
     enum SpeechError: LocalizedError {
+        case finalizationTimedOut
+        case permissionRequired
         case unsupportedLanguage
         case deviceUnavailable
 
         var errorDescription: String? {
             switch self {
+            case .finalizationTimedOut:
+                return "確定待ちが時間切れになったため、認識済みの文で終了しました"
+            case .permissionRequired:
+                return "システム設定で Koe15 の音声認識を許可してください"
             case .unsupportedLanguage:
-                return "この言語は Mac 内の音声認識に対応していません"
+                return "Mac 内の日本語認識モデルが使えません。システム設定の音声入力を日本語で有効にしてから再試行してください"
             case .deviceUnavailable:
                 return "選択されたマイクデバイスが利用できません"
             }
         }
-    }
-}
-
-/// 取り込んだ音を SpeechAnalyzer が受け付ける形式へ変換する。入力形式が変わったら作り直す。
-private final class BufferConverter {
-    private let format: AVAudioFormat
-    private var converter: AVAudioConverter?
-
-    init(to format: AVAudioFormat) {
-        self.format = format
-    }
-
-    func convert(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard buffer.format != format else { return buffer }
-        if converter?.inputFormat != buffer.format {
-            converter = AVAudioConverter(from: buffer.format, to: format)
-            // 既定の priming はバッファの先頭を捨てるため、細切れに変換すると継ぎ目ごとに音が欠ける。
-            converter?.primeMethod = .none
-        }
-        guard let converter else { return nil }
-        let ratio = format.sampleRate / buffer.format.sampleRate
-        let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up))
-        guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
-
-        var consumed = false
-        var error: NSError?
-        let status = converter.convert(to: output, error: &error) { _, inputStatus in
-            if consumed {
-                inputStatus.pointee = .noDataNow
-                return nil
-            }
-            consumed = true
-            inputStatus.pointee = .haveData
-            return buffer
-        }
-        if status == .error {
-            Log.d("[SpeechManager] Audio conversion failed: \(error?.localizedDescription ?? "unknown")")
-            return nil
-        }
-        return output
     }
 }
 

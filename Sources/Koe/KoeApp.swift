@@ -10,7 +10,6 @@ struct KoeApp: App {
     private let hotkeyManager = HotkeyManager.shared
     @ObservedObject private var config = Config.shared
     @ObservedObject private var coordinator = DictationCoordinator.shared
-    @State private var settingsWindow: NSWindow?
 
     var body: some Scene {
         MenuBarExtra {
@@ -45,19 +44,7 @@ struct KoeApp: App {
     }()
 
     private func openSettings() {
-        if let window = settingsWindow, window.isVisible {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
-        window.title = "koe! 設定"
-        window.styleMask = [.titled, .closable, .miniaturizable]
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow = window
+        appDelegate.showSettings()
     }
 
     private func setupHotkey() {

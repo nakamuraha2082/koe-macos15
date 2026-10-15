@@ -1,7 +1,10 @@
 import Cocoa
 import Speech
+import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var settingsWindow: NSWindow?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let directory = SnapshotRenderer.requestedDirectory {
             MainActor.assumeIsolated { SnapshotRenderer.renderAll(to: directory) }
@@ -9,13 +12,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let file = FileTranscriptionProbe.requestedFile {
             Task { @MainActor in
-                await FileTranscriptionProbe.run(file: file)
-                exit(0)
+                let success = await FileTranscriptionProbe.run(file: file)
+                exit(success ? 0 : 1)
             }
             return
         }
         Log.d("[AppDelegate] Launch started \(appVersionDescription)")
+        showSettings()
         checkAllPermissions()
+    }
+
+    @MainActor
+    func showSettings() {
+        if settingsWindow == nil {
+            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
+            window.title = "Koe15 設定"
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            settingsWindow = window
+        }
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showSettings()
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -33,11 +56,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let axOptions = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         let accessibilityGranted = AXIsProcessTrustedWithOptions(axOptions)
         Log.d("[AppDelegate] Accessibility: \(accessibilityGranted)")
-        if !accessibilityGranted {
-            DispatchQueue.main.async {
-                self.showPermissionAlert(for: .accessibility)
-            }
-        }
 
         // 2. Microphone
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -58,26 +76,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showPermissionAlert(for permission: Permission) {
-        let alert = NSAlert()
-        alert.messageText = "koe! に権限が必要です"
-        alert.informativeText = """
-        以下の権限を許可してください：
-
-        ・\(permission.title)（\(permission.purpose)に必要）
-
-        「\(permission.title)を開く」を押して、koe! を追加・許可してください。
-        許可後、アプリを再起動してください。
-        """
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "\(permission.title)を開く")
-        alert.addButton(withTitle: "後で")
-
-        NSApp.activate(ignoringOtherApps: true)
-        let response = alert.runModal()
-
-        if response == .alertFirstButtonReturn {
-            permission.openSettings()
-        }
-    }
 }

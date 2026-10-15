@@ -11,7 +11,7 @@ RESET_TCC="${RESET_TCC:-0}"
 # 1. Stop running instance & clean up old installation
 # -------------------------------------------------------
 echo "=== Stopping existing ${APP_NAME} ==="
-pkill -x "${APP_NAME}" 2>/dev/null && echo "  Killed running process" || echo "  No running process"
+pkill -f "^${INSTALL_DIR}/${APP_BUNDLE}/Contents/MacOS/${APP_NAME}([[:space:]]|$)" 2>/dev/null && echo "  Killed running process" || echo "  No running process"
 sleep 1
 
 if [ "${RESET_TCC}" = "1" ]; then
@@ -74,6 +74,6 @@ echo "       System Settings > Privacy & Security > Accessibility"
 echo "       System Settings > Privacy & Security > Input Monitoring"
 echo ""
 echo "  3. After enabling, restart the app:"
-echo "       pkill -x ${APP_NAME}; open /Applications/${APP_BUNDLE}"
+echo "       Quit Koe15 from its menu, then open /Applications/${APP_BUNDLE}"
 echo ""
-echo "Or search 'Koe' in Spotlight (Cmd+Space)"
+echo "Or search 'Koe15' in Spotlight (Cmd+Space)"

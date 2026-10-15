@@ -7,11 +7,11 @@
 #   ./create-dmg.sh --skip-build   # ビルド済み .app から DMG だけ作成
 #
 # 前提:
-#   - macOS 26+, Swift 6.2+, Xcode Command Line Tools
+#   - macOS 15+, Swift 6.1+, Xcode Command Line Tools
 #   - hdiutil（macOS 標準搭載）
 #
 # 出力:
-#   ./dist/Koe-<version>.dmg
+#   ./dist/Koe15-<version>.dmg
 # ============================================================
 set -euo pipefail
 
@@ -35,7 +35,7 @@ if [ -z "${VERSION}" ]; then
     echo "Warning: Could not read version from Info.plist, falling back to 0.0.0" >&2
     VERSION="0.0.0"
 fi
-DMG_NAME="${APP_NAME}-${VERSION}.dmg"
+DMG_NAME="Koe15-${VERSION}.dmg"
 
 echo "=== Koe DMG Builder ==="
 echo "  Version: ${VERSION}"
@@ -90,10 +90,10 @@ cat > "${DMG_STAGE}/はじめにお読みください.txt" << 'READMETXT'
 koe! — インストール手順
 
 1. インストール
-   Koe.app を Applications フォルダにドラッグ＆ドロップしてください。
+   Koe15.app を Applications フォルダにドラッグ＆ドロップしてください。
 
 2. 初回起動
-   - /Applications/Koe.app をダブルクリック
+   - /Applications/Koe15.app をダブルクリック
    - Gatekeeper にブロックされたら「完了」を押す
    - システム設定 > プライバシーとセキュリティ を開く
    - 画面下部の「このまま開く」をクリック
@@ -109,10 +109,10 @@ koe! — インストール手順
 4. 使い方
    - fn キーを押しながら話すと、話している間に文字が入力されます
    - fn キーを離すと確定、録音中に esc で取り消し
-   - 文字を選択してから話すと、話した指示で選択範囲を書き換えます（Apple Intelligence が必要）
+   - 1回最大55秒。選択範囲の音声指示による修正には対応しません
 
 注意:
-  - macOS 26 以上が必要です
+  - macOS 15 以上が必要です
   - fn キーが絵文字ピッカーを起動する場合は、
     システム設定 → キーボード →「🌐キーを押して」を「何もしない」に変更してください
 READMETXT

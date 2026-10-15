@@ -26,7 +26,7 @@ enum FileTranscriptionProbe {
     /// 録音キーの押下が確定する（0.25 秒）までと入力ソースの切り替え待ち（0.1 秒）の間は打たない、本番と同じ扱い。
     private static let typingFrom: TimeInterval = 0.35
 
-    static func run(file: URL) async {
+    static func run(file: URL) async -> Bool {
         let speech = SpeechManager.shared
         let start = ProcessInfo.processInfo.systemUptime
         var elapsed: TimeInterval { ProcessInfo.processInfo.systemUptime - start }
@@ -68,12 +68,16 @@ enum FileTranscriptionProbe {
             MainActor.assumeIsolated { flush() }
         }
         RunLoop.main.add(timer, forMode: .common)
+        defer {
+            timer.invalidate()
+            subscription.cancel()
+        }
 
         do {
             try speech.startRecording(language: Config.recognitionLanguage, dictionary: requestedDictionary, file: file)
         } catch {
             print("failed to start: \(error.localizedDescription)")
-            return
+            return false
         }
         log("started \(file.lastPathComponent) language=\(Config.recognitionLanguage) dictionary=\(requestedDictionary.map { "\($0.word)=\($0.misrecognitions)" })")
         let final = await speech.finalTranscript(timeout: .seconds(120))
@@ -87,5 +91,6 @@ enum FileTranscriptionProbe {
         apply(reconciler.finish())
         print("final transcript: \"\(final.text)\"")
         print("field matches final transcript: \(field == final.text)")
+        return speech.lastError == nil && !final.text.isEmpty && field == final.text
     }
 }

@@ -7,6 +7,16 @@ struct Transcript: Equatable {
     var volatile = ""
 
     var text: String { finalized + volatile }
+
+    /// SFSpeechRecognizer はリクエスト全体を返す。終了時の空結果では認識済みの文を消さない。
+    mutating func receiveCumulative(_ text: String, isFinal: Bool) {
+        let hasText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if isFinal {
+            self = Transcript(finalized: hasText ? text : self.text)
+        } else if hasText {
+            self = Transcript(volatile: text)
+        }
+    }
 }
 
 enum LiveTextOp: Equatable {

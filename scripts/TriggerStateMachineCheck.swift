@@ -12,6 +12,7 @@ enum TriggerStateMachineCheck {
     static func main() {
         checkTriggerStateMachine()
         checkLiveTextReconciler()
+        checkCumulativeRecognition()
         checkUserDictionary()
         if failures > 0 {
             print("\(failures) check(s) failed")
@@ -21,6 +22,25 @@ enum TriggerStateMachineCheck {
     }
 
     typealias Machine = TriggerStateMachine
+
+    static func checkCumulativeRecognition() {
+        var transcript = Transcript()
+        var reconciler = LiveTextReconciler()
+        transcript.receiveCumulative("音声入力のテスト", isFinal: false)
+        reconciler.observe(transcript, at: 0)
+        _ = reconciler.sync(at: 1)
+        transcript.receiveCumulative("", isFinal: false)
+        check(transcript.text == "音声入力のテスト", "recognition: empty partial preserves recognized text")
+        transcript.receiveCumulative("", isFinal: true)
+        reconciler.observe(transcript, at: 2)
+        check(transcript.finalized == "音声入力のテスト", "recognition: empty final keeps the recognized sentence")
+        check(reconciler.finish().isEmpty, "recognition: releasing the recording key never erases text on an empty final")
+        transcript.receiveCumulative("音声入力のテストです。", isFinal: true)
+        check(transcript.text == "音声入力のテストです。", "recognition: a nonempty final replaces the cumulative partial without duplication")
+        transcript = Transcript()
+        transcript.receiveCumulative("  \n", isFinal: true)
+        check(transcript.text.isEmpty, "recognition: silence does not invent text")
+    }
 
     static func run(_ steps: [(Machine.Event, TimeInterval)]) -> (Machine, [Machine.Effect]) {
         var machine = Machine()

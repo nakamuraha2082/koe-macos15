@@ -10,9 +10,9 @@ set -euo pipefail
 # 共通変数
 # -------------------------------------------------------
 APP_NAME="Koe"
-BUNDLE_ID="com.koe.app"
+BUNDLE_ID="com.koe.macos15"
 BUILD_DIR=".build/release"
-APP_BUNDLE="${APP_NAME}.app"
+APP_BUNDLE="Koe15.app"
 CONTENTS_DIR="${APP_BUNDLE}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
@@ -24,12 +24,6 @@ DESIGNATED_REQUIREMENT="designated => identifier \"${BUNDLE_ID}\""
 # -------------------------------------------------------
 build_release() {
     echo "=== Building ${APP_NAME} (release) ==="
-    # ponytail: Command Line Tools 27 の macOS 27 SDK は SwiftUI の @State がマクロになり、その実装が同梱されずビルドできない。
-    # Xcode が無い環境では同梱の macOS 26 SDK でビルドする。Xcode を入れるか CLT が直れば不要。
-    local sdk26="/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk"
-    if [ -z "${SDKROOT:-}" ] && [ -d "${sdk26}" ] && [[ "$(xcode-select -p)" == /Library/Developer/CommandLineTools* ]]; then
-        export SDKROOT="${sdk26}"
-    fi
     swift build -c release
 }
 
@@ -48,6 +42,7 @@ create_app_bundle() {
 
     # Copy Info.plist (must be at Contents/Info.plist)
     cp "Resources/Info.plist" "${CONTENTS_DIR}/Info.plist"
+    cp "Resources/SpeechSample.aiff" "${RESOURCES_DIR}/"
     echo "  Info.plist copied"
 
     # Copy app icon
